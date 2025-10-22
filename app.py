@@ -1,14 +1,57 @@
 import streamlit as st
 import pandas as pd
+import joblib
 
+# --------------------------------------------------------------------------
+# 1. Load the Saved Model
+# --------------------------------------------------------------------------
+# This file MUST be in the same folder as your app.py
+MODEL_FILE = 'rf_churn_model.pkl'
+
+try:
+    model = joblib.load(MODEL_FILE)
+    print("Model loaded successfully!")
+except FileNotFoundError:
+    st.error(f"Error: Model file '{MODEL_FILE}' not found.")
+    st.stop() # Stop the app if the model isn't found
+except Exception as e:
+    st.error(f"An error occurred while loading the model: {e}")
+    st.stop()
+
+# --------------------------------------------------------------------------
+# 2. Define the correct Feature Order (CRITICAL)
+# --------------------------------------------------------------------------
+# This MUST be the exact order of columns your model was trained on.
+# We are using the names with spaces, as you provided.
+TRAINING_COLUMNS_ORDER = [
+    'Call Failure',
+    'Complaints',
+    'Subscription Length',
+    'Charge Amount',
+    'Seconds of Use',
+    'Frequency of use',
+    'Frequency of SMS',
+    'Distinct Called Numbers',
+    'Age Group',
+    'Tariff Plan',
+    'Status',
+    'Age',
+    'Customer Value'
+]
+
+# --------------------------------------------------------------------------
+# 3. Function to Get User Inputs
+# --------------------------------------------------------------------------
 def get_user_inputs():
     """
     Creates sidebar widgets to get input for all 13 features.
+    Returns a DataFrame with the user's inputs.
     """
     
     st.sidebar.header("Customer Input Features")
 
-    # --- Create inputs for each feature ---
+    # Create inputs for each feature
+    # Note: The dictionary keys MUST match the names in TRAINING_COLUMNS_ORDER
     
     call_failure = st.sidebar.number_input("Number of Call Failures", min_value=0, value=0)
     complaints = st.sidebar.slider("Complaints (0 = No, 1 = Yes)", 0, 1, 0)
@@ -34,7 +77,7 @@ def get_user_inputs():
     age = st.sidebar.number_input("Age", min_value=18, max_value=100, value=25)
     customer_value = st.sidebar.number_input("Customer Value ($)", min_value=0.0, value=200.0, format="%.2f")
 
-    # --- Collect data into a dictionary ---
+    # Collect data into a dictionary
     data = {
         'Call Failure': call_failure,
         'Complaints': complaints,
@@ -51,41 +94,61 @@ def get_user_inputs():
         'Customer Value': customer_value
     }
     
-    # --- Convert to DataFrame ---
+    # Convert dictionary to a DataFrame
     input_df = pd.DataFrame([data])
     
     return input_df
 
-# --- How to use the function in your app ---
+# --------------------------------------------------------------------------
+# 4. Main Application Interface
+# --------------------------------------------------------------------------
 
-# 1. Get the inputs
-input_data = get_user_inputs()
+# Set up the page configuration
+st.set_page_config(page_title="Customer Churn Predictor", page_icon="🚀", layout="wide")
 
-# 2. ⚠️ CRITICAL STEP: Re-order columns
-# The model MUST receive columns in the exact order it was trained on.
-# Create a list of your columns in the correct training order.
-TRAINING_COLUMNS_ORDER = [
-    'Complaints', 'Status', 'Seconds_of_Use', 'Subscription_Length',
-    'Frequency_of_use', 'Call_Failure', 'Distinct_Called_Numbers',
-    'Customer_Value', 'Frequency_of_SMS', 'Age_Group', 'Age',
-    'Charge_Amount', 'Tariff_Plan'
-    # ^^^ THIS ORDER MUST MATCH YOUR MODEL'S TRAINING DATA ^^^
-]
+# Title and description
+st.title("🚀 Proactive Customer Churn Prediction")
+st.write("""
+This app uses a Random Forest model (Accuracy: 98.6%) to predict if a customer 
+is likely to churn. Please input the customer's details 
+in the sidebar to get a prediction.
+""")
 
-# Re-order the DataFrame
+# --- Get inputs and re-order columns ---
+input_df = get_user_inputs()
+
+# Re-order the DataFrame to match the model's training order
 try:
-    input_data_ordered = input_data[TRAINING_COLUMNS_ORDER]
+    input_data_ordered = input_df[TRAINING_COLUMNS_ORDER]
 except KeyError as e:
-    st.error(f"Error in column names: {e}. Check your TRAINING_COLUMNS_ORDER list.")
+    st.error(f"Error in column names: {e}. Check your TRAINING_COLUMNS_ORDER list in the code.")
+    st.stop()
+except Exception as e:
+    st.error(f"An unexpected error occurred while re-ordering columns: {e}")
     st.stop()
 
-
-# 3. Display and Predict
-st.subheader("User Input (Ready for Model):")
+# Display the final input data
+st.subheader("Customer Data (Ready for Prediction):")
 st.dataframe(input_data_ordered)
 
-if st.button("Predict"):
-    # Now you can safely pass 'input_data_ordered' to your model
-    # prediction = model.predict(input_data_ordered)
-    # st.success(f"Prediction: {prediction[0]}")
-    pass # Placeholder for your prediction logic
+# --- Prediction Logic ---
+if st.button("Predict Customer Churn", key="predict_button"):
+    
+    try:
+        # Make prediction
+        prediction = model.predict(input_data_ordered)
+        probability = model.predict_proba(input_data_ordered)
+
+        st.subheader("Prediction Result:")
+        
+        if prediction[0] == 1:
+            churn_prob = probability[0][1] * 100
+            st.error(f"Prediction: **Customer will CHURN** (Probability: {churn_prob:.2f}%) 😡", icon="🚨")
+            st.warning("Recommendation: This customer is at high risk. Escalate to the retention team immediately.")
+        else:
+            no_churn_prob = probability[0][0] * 100
+            st.success(f"Prediction: **Customer will STAY** (Probability: {no_churn_prob:.2f}%) 😊", icon="✅")
+            st.info("Recommendation: Customer is loyal. Consider offering a rewards or loyalty bonus.")
+            
+    except Exception as e:
+        st.error(f"An error occurred during prediction: {e}")
